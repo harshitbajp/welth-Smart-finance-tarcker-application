@@ -1,7 +1,7 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
-import { db } from "@lib/prisma";
+import { db } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 
 const serializeTransation = (obj) => {
@@ -10,12 +10,18 @@ const serializeTransation = (obj) => {
     if(obj.balance){
         serialized.balance = obj.balance.toNumber();
     }
+
+    if(obj.amount){
+        serialized.amount = obj.amount.toNumber();
+    }
+
+    return serialized;
 }
 
 export async function createAccount(data) {
   try {
-    const { userId } = auth();
-    if (!userId) throw new Error("Uauthorized");
+    const { userId } = await auth();
+    if (!userId) throw new Error("Unauthorized");
 
     const user = await db.user.findUnique({
       where: { clerkUserId: userId },
@@ -25,11 +31,16 @@ export async function createAccount(data) {
       throw new Error("User not found");
     }
 
-    //convert balance to float
+    
+
+    // Convert balance to float before saving
     const balanceFloat = parseFloat(data.balance);
+    // console.log("balance amount",data.balance);
     if (isNaN(balanceFloat)) {
+        console.error("Invalid balance amount received:", data.balance);
       throw new Error("Invalid balance amount");
     }
+
 
     const existingAccounts = await db.account.findMany({
       where: { userId: user.id },
@@ -49,6 +60,7 @@ export async function createAccount(data) {
 
         const account = await db.account.create({
             data: {
+                ...data,
                 balance: balanceFloat,
                 userId: user.id,
                 isDefault: shouldBeDefault,
@@ -59,8 +71,37 @@ export async function createAccount(data) {
 
         revalidatePath("/dashboard");
 
-        return {success: true, data :serializeTransation};
+        return {success: true, data : serializedAccount};
   } catch (error) {
     throw new Error(error.message);
   }
+}
+
+export async function getUserAccounts(){
+    const { userId } = await auth();
+    if (!userId) throw new Error("Unauthorized");
+
+    const user = await db.user.findUnique({
+      where: { clerkUserId: userId },
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+
+    const accounts = await db.account.findMany({
+        where: {userId: user.id},
+        orderBy: {createdAt: "desc"},
+        include:{
+            _count:{
+                select: {
+                    transactions: true,
+                }
+            }
+        }
+    });
+    const serializedAccount = accounts.map(serializeTransation);
+
+    return serializedAccount;
 }
