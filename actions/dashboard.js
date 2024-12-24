@@ -125,4 +125,6 @@ export async function getDashboardData(){
       where: {userId: user.id},
       orderBy: {date: "desc"},
   });
+
+  return transactions.map(serializeTransation);
 }
